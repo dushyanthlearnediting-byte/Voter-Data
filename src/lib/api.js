@@ -262,9 +262,27 @@ export async function addVoter(data) {
 }
 
 export async function updateVoter(id, data) {
+  if (currentUser?.role === 'data_entry') {
+    throw new Error('Data Entry users can only update a voter phone number');
+  }
   const { data: row, error } = await supabase
     .from('voters')
     .update(voterToDb(data))
+    .eq('id', id)
+    .select(VOTER_SELECT)
+    .single();
+  if (error) throw friendlyError(error);
+  return mapVoter(row);
+}
+
+export async function updateVoterPhone(id, phone) {
+  const normalizedPhone = blank(phone);
+  if (normalizedPhone && !/^[6-9]\d{9}$/.test(normalizedPhone)) {
+    throw new Error('Enter a 10-digit mobile number starting with 6, 7, 8 or 9');
+  }
+  const { data: row, error } = await supabase
+    .from('voters')
+    .update({ phone: normalizedPhone })
     .eq('id', id)
     .select(VOTER_SELECT)
     .single();

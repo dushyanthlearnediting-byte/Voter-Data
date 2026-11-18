@@ -24,6 +24,37 @@ end $$;
 alter table public.voters add column if not exists booth_name text;
 alter table public.voters add column if not exists ward_serial integer;
 
+create or replace function public.data_entry_phone_only()
+returns trigger language plpgsql as $$
+begin
+  if public.app_role() = 'data_entry' and (
+    new.id is distinct from old.id
+    or new.full_name is distinct from old.full_name
+    or new.relative_name is distinct from old.relative_name
+    or new.voter_id is distinct from old.voter_id
+    or new.ward_id is distinct from old.ward_id
+    or new.age is distinct from old.age
+    or new.gender is distinct from old.gender
+    or new.booth_name is distinct from old.booth_name
+    or new.ward_serial is distinct from old.ward_serial
+    or new.address is distinct from old.address
+    or new.status is distinct from old.status
+    or new.notes is distinct from old.notes
+    or new.created_by is distinct from old.created_by
+    or new.created_at is distinct from old.created_at
+  ) then
+    raise exception using
+      errcode = '42501',
+      message = 'Data Entry users can only update a voter phone number';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists voters_data_entry_phone_only on public.voters;
+create trigger voters_data_entry_phone_only
+before update on public.voters
+for each row execute function public.data_entry_phone_only();
+
 alter table public.voters drop constraint if exists voters_status_check;
 update public.voters
 set status = case status

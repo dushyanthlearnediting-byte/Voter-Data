@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react';
-import { MessageCircle, Pencil, Phone, Trash2, X } from 'lucide-react';
-import { getContactLinks, getMessageTemplate } from '@/lib/api';
+import { Loader2, MessageCircle, Pencil, Phone, Save, Trash2, X } from 'lucide-react';
+import { getContactLinks, getMessageTemplate, updateVoterPhone } from '@/lib/api';
 import { formatDate } from '@/lib/format';
+import { useToast } from '@/components/Toast';
 
-export default function VoterDetailsPanel({ voter, canDelete, onClose, onEdit, onDelete }) {
+export default function VoterDetailsPanel({ voter, canDelete, canEditAll, onClose, onEdit, onDelete, onPhoneSaved }) {
   const [editedMessage, setEditedMessage] = useState('');
+  const [phone, setPhone] = useState('');
+  const [savingPhone, setSavingPhone] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
-    const message = getMessageTemplate().message;
-    setEditedMessage(message);
-  }, [voter]);
+    setEditedMessage(getMessageTemplate().message);
+  }, [voter?.id]);
+
+  useEffect(() => {
+    if (voter) setPhone(voter.phone || '');
+  }, [voter?.id, voter?.phone]);
 
   if (!voter) return null;
 
@@ -22,7 +29,6 @@ export default function VoterDetailsPanel({ voter, canDelete, onClose, onEdit, o
   const details = [
     ['Voter ID', voter.voterId],
     ['Relative name', voter.relativeName],
-    ['Phone', voter.phone],
     ['Ward', voter.wardName],
     ['Booth name', voter.boothName],
     ['Ward serial', voter.wardSerial],
@@ -34,6 +40,21 @@ export default function VoterDetailsPanel({ voter, canDelete, onClose, onEdit, o
     ['Added by', voter.createdBy],
     ['Notes', voter.notes],
   ];
+  const phoneChanged = phone !== (voter.phone || '');
+  const phoneValid = !phone || /^[6-9]\d{9}$/.test(phone);
+
+  async function handleSavePhone() {
+    setSavingPhone(true);
+    try {
+      const updatedVoter = await updateVoterPhone(voter.id, phone);
+      onPhoneSaved?.(updatedVoter);
+      toast.success('Phone number updated');
+    } catch (err) {
+      toast.error(err.message || 'Could not update phone number');
+    } finally {
+      setSavingPhone(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-stretch sm:justify-end">
@@ -82,9 +103,36 @@ export default function VoterDetailsPanel({ voter, canDelete, onClose, onEdit, o
 
           {!links.canContact && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              No phone number. Tap Edit to add one.
+              No phone number. Add one below to enable calling and messaging.
             </p>
           )}
+
+          <div>
+            <label htmlFor="voter-phone" className="mb-2 block text-sm font-semibold text-slate-800">
+              Phone number
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="voter-phone"
+                inputMode="numeric"
+                maxLength={10}
+                value={phone}
+                onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 10))}
+                placeholder="10-digit mobile number"
+                className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+              />
+              <button
+                type="button"
+                onClick={handleSavePhone}
+                disabled={!phoneChanged || !phoneValid || savingPhone}
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingPhone ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
+                <span className="hidden sm:inline">Save</span>
+              </button>
+            </div>
+            {!phoneValid && <p className="mt-1 text-xs text-red-600">Enter a 10-digit mobile number starting with 6, 7, 8 or 9</p>}
+          </div>
 
           <div>
             <label htmlFor="voter-message-preview" className="mb-2 block text-sm font-semibold text-slate-800">
@@ -109,13 +157,15 @@ export default function VoterDetailsPanel({ voter, canDelete, onClose, onEdit, o
           </div>
 
           <div className="flex gap-3 border-t border-slate-100 pt-4">
-            <button
-              type="button"
-              onClick={onEdit}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-50 px-4 py-3 text-sm font-semibold text-brand-700 transition hover:bg-brand-100"
-            >
-              <Pencil size={16} /> Edit
-            </button>
+            {canEditAll && (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-50 px-4 py-3 text-sm font-semibold text-brand-700 transition hover:bg-brand-100"
+              >
+                <Pencil size={16} /> Edit
+              </button>
+            )}
             {canDelete && (
               <button
                 type="button"

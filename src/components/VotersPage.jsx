@@ -14,6 +14,7 @@ const PAGE_SIZE = 50;
 
 export default function VotersPage({ user }) {
   const isAdmin = user.role === 'admin';
+  const canEditAll = user.role === 'admin' || user.role === 'sub_admin';
   const canExport = user.role === 'admin' || user.role === 'sub_admin';
   const canDelete = user.role !== 'data_entry';
 
@@ -330,13 +331,15 @@ export default function VotersPage({ user }) {
                       <td className="px-4 py-3 text-slate-500 text-xs">{formatDate(v.createdAt)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={(event) => { event.stopPropagation(); openEdit(v); }}
-                            className="rounded-lg p-2 text-slate-500 hover:bg-brand-50 hover:text-brand-700 transition"
-                            aria-label="Edit"
-                          >
-                            <Pencil size={16} />
-                          </button>
+                          {canEditAll && (
+                            <button
+                              onClick={(event) => { event.stopPropagation(); openEdit(v); }}
+                              className="rounded-lg p-2 text-slate-500 hover:bg-brand-50 hover:text-brand-700 transition"
+                              aria-label="Edit"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                          )}
                           {canDelete && (
                             <button
                               onClick={(event) => { event.stopPropagation(); setConfirm(v); }}
@@ -389,12 +392,14 @@ export default function VotersPage({ user }) {
                     <p className="flex items-center gap-2"><Calendar size={14} className="text-slate-400" /> {formatDate(v.createdAt)}</p>
                   </div>
                   <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3">
-                    <button
-                      onClick={(event) => { event.stopPropagation(); openEdit(v); }}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 transition"
-                    >
-                      <Pencil size={15} /> Edit
-                    </button>
+                    {canEditAll && (
+                      <button
+                        onClick={(event) => { event.stopPropagation(); openEdit(v); }}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 transition"
+                      >
+                        <Pencil size={15} /> Edit
+                      </button>
+                    )}
                     {canDelete && (
                       <button
                         onClick={(event) => { event.stopPropagation(); setConfirm(v); }}
@@ -451,6 +456,7 @@ export default function VotersPage({ user }) {
       <VoterDetailsPanel
         voter={selectedVoter}
         canDelete={canDelete}
+        canEditAll={canEditAll}
         onClose={() => setSelectedVoter(null)}
         onEdit={() => {
           openEdit(selectedVoter);
@@ -459,6 +465,12 @@ export default function VotersPage({ user }) {
         onDelete={() => {
           setConfirm(selectedVoter);
           setSelectedVoter(null);
+        }}
+        onPhoneSaved={(updatedVoter) => {
+          setSelectedVoter(updatedVoter);
+          setVoters((current) => current.map((voter) => (
+            voter.id === updatedVoter.id ? updatedVoter : voter
+          )));
         }}
       />
 
