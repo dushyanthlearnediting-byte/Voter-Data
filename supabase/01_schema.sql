@@ -27,7 +27,8 @@ create table public.voters (
   ward_id uuid not null references public.wards(id),
   age int check (age is null or age between 18 and 120),
   gender text,
-  house_number text,
+  booth_name text,
+  ward_serial integer,
   address text,
   status text not null default 'Not visited'
     check (status in ('Not visited','Visited','Follow-up needed')),

@@ -8,6 +8,22 @@ from auth.users u
 where u.id = p.id and p.email is null;
 
 -- 2. Status values used by the app screens
+-- Replace the former house field while preserving existing voter data.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'voters' and column_name = 'house_number'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'voters' and column_name = 'booth_name'
+  ) then
+    alter table public.voters rename column house_number to booth_name;
+  end if;
+end $$;
+alter table public.voters add column if not exists booth_name text;
+alter table public.voters add column if not exists ward_serial integer;
+
 alter table public.voters drop constraint if exists voters_status_check;
 update public.voters
 set status = case status

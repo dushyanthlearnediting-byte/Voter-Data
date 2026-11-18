@@ -7,6 +7,7 @@ import VotersPage from '@/components/VotersPage';
 import UsersPage from '@/components/UsersPage';
 import Dashboard from '@/components/Dashboard';
 import LoadingScreen from '@/components/LoadingScreen';
+import MessageSettings from '@/components/MessageSettings';
 
 function AppInner() {
   const [user, setUser] = useState(null);
@@ -56,6 +57,7 @@ function AppInner() {
         {view === 'voters' && <VotersPage user={user} />}
         {view === 'dashboard' && <Dashboard user={user} />}
         {view === 'users' && (user.role === 'admin' || user.role === 'sub_admin') && <UsersPage user={user} />}
+        {view === 'message-settings' && <MessageSettings />}
       </main>
     </div>
   );

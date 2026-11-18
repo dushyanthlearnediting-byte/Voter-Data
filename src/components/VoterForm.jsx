@@ -14,7 +14,8 @@ const GENDERS = [
 const emptyForm = {
   fullName: '',
   relativeName: '',
-  houseNumber: '',
+  boothName: '',
+  wardSerial: '',
   voterId: '',
   phone: '',
   wardId: '',
@@ -49,7 +50,8 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
       setForm({
         fullName: voter.fullName || '',
         relativeName: voter.relativeName || '',
-        houseNumber: voter.houseNumber || '',
+        boothName: voter.boothName || '',
+        wardSerial: voter.wardSerial ?? '',
         voterId: voter.voterId || '',
         phone: voter.phone || '',
         wardId: voter.wardId ?? '',
@@ -146,12 +148,12 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
                 placeholder="As printed in the voter list"
               />
             </Field>
-            <Field label="House number">
+            <Field label="Booth name">
               <input
                 className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200`}
-                value={form.houseNumber}
-                onChange={(e) => setField('houseNumber', e.target.value)}
-                placeholder="e.g. 2-45"
+                value={form.boothName}
+                onChange={(e) => setField('boothName', e.target.value)}
+                placeholder="e.g. North Primary School"
               />
             </Field>
           </div>
@@ -177,7 +179,7 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
             </Field>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <Field label="Ward" required error={errors.wardId}>
               <select
                 disabled={wardLocked}
@@ -201,6 +203,15 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
                 placeholder="35"
               />
             </Field>
+            <Field label="Ward serial">
+              <input
+                inputMode="numeric"
+                className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200`}
+                value={form.wardSerial}
+                onChange={(e) => setField('wardSerial', e.target.value.replace(/\D/g, ''))}
+                placeholder="Optional"
+              />
+            </Field>
             <Field label="Gender">
               <select
                 className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200`}
@@ -220,7 +231,7 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
               className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200 resize-none`}
               value={form.address}
               onChange={(e) => setField('address', e.target.value)}
-              placeholder="House no, street, area"
+              placeholder="Street, area"
             />
           </Field>
 

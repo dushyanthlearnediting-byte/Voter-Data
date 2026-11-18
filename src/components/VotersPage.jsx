@@ -8,6 +8,7 @@ import { STATUS_OPTIONS, statusMeta, formatDate } from '@/lib/format';
 import { useToast } from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import VoterForm from '@/components/VoterForm';
+import VoterDetailsPanel from '@/components/VoterDetailsPanel';
 
 const PAGE_SIZE = 50;
 
@@ -31,6 +32,7 @@ export default function VotersPage({ user }) {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [selectedVoter, setSelectedVoter] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const toast = useToast();
   const fileRef = useRef(null);
@@ -93,6 +95,7 @@ export default function VotersPage({ user }) {
       await deleteVoter(confirm.id);
       toast.success('Voter deleted');
       setConfirm(null);
+      setSelectedVoter(null);
       load();
     } catch (err) {
       toast.error(err.message || 'Could not delete voter');
@@ -288,6 +291,7 @@ export default function VotersPage({ user }) {
                   <th className="px-4 py-3">Voter ID</th>
                   <th className="px-4 py-3">Phone</th>
                   {isAdmin && <th className="px-4 py-3">Ward</th>}
+                  <th className="px-4 py-3">Booth name</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Added</th>
                   <th className="px-4 py-3 text-right">Actions</th>
@@ -297,7 +301,18 @@ export default function VotersPage({ user }) {
                 {voters.map((v) => {
                   const sm = statusMeta(v.status);
                   return (
-                    <tr key={v.id} className="hover:bg-slate-50/70 transition">
+                    <tr
+                      key={v.id}
+                      onClick={() => setSelectedVoter(v)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedVoter(v);
+                        }
+                      }}
+                      tabIndex={0}
+                      className="cursor-pointer hover:bg-slate-50/70 transition"
+                    >
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-900">{v.fullName}</div>
                         <div className="text-xs text-slate-500">{v.age ? `${v.age} yrs` : ''}{v.gender ? ` · ${v.gender}` : ''}</div>
@@ -306,6 +321,7 @@ export default function VotersPage({ user }) {
                       <td className="px-4 py-3 font-mono text-xs text-slate-700">{v.voterId}</td>
                       <td className="px-4 py-3 text-slate-700">{v.phone || '—'}</td>
                       {isAdmin && <td className="px-4 py-3 text-slate-700">{v.wardName}</td>}
+                      <td className="px-4 py-3 text-slate-700">{v.boothName || '—'}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${sm.className}`}>
                           {sm.label}
@@ -315,7 +331,7 @@ export default function VotersPage({ user }) {
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
                           <button
-                            onClick={() => openEdit(v)}
+                            onClick={(event) => { event.stopPropagation(); openEdit(v); }}
                             className="rounded-lg p-2 text-slate-500 hover:bg-brand-50 hover:text-brand-700 transition"
                             aria-label="Edit"
                           >
@@ -323,7 +339,7 @@ export default function VotersPage({ user }) {
                           </button>
                           {canDelete && (
                             <button
-                              onClick={() => setConfirm(v)}
+                              onClick={(event) => { event.stopPropagation(); setConfirm(v); }}
                               className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600 transition"
                               aria-label="Delete"
                             >
@@ -344,7 +360,19 @@ export default function VotersPage({ user }) {
             {voters.map((v) => {
               const sm = statusMeta(v.status);
               return (
-                <div key={v.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div
+                  key={v.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedVoter(v)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedVoter(v);
+                    }
+                  }}
+                  className="cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-900 truncate">{v.fullName}</p>
@@ -357,18 +385,19 @@ export default function VotersPage({ user }) {
                   <div className="mt-3 space-y-1.5 text-sm text-slate-600">
                     <p className="flex items-center gap-2"><Phone size={14} className="text-slate-400" /> {v.phone || '—'}</p>
                     {isAdmin && <p className="flex items-center gap-2"><MapPin size={14} className="text-slate-400" /> {v.wardName}</p>}
+                    <p className="flex items-center gap-2"><MapPin size={14} className="text-slate-400" /> {v.boothName || 'Booth name not set'}</p>
                     <p className="flex items-center gap-2"><Calendar size={14} className="text-slate-400" /> {formatDate(v.createdAt)}</p>
                   </div>
                   <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3">
                     <button
-                      onClick={() => openEdit(v)}
+                      onClick={(event) => { event.stopPropagation(); openEdit(v); }}
                       className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 transition"
                     >
                       <Pencil size={15} /> Edit
                     </button>
                     {canDelete && (
                       <button
-                        onClick={() => setConfirm(v)}
+                        onClick={(event) => { event.stopPropagation(); setConfirm(v); }}
                         className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-100 transition"
                       >
                         <Trash2 size={15} /> Delete
@@ -416,6 +445,20 @@ export default function VotersPage({ user }) {
         onSaved={() => {
           setFormOpen(false);
           load();
+        }}
+      />
+
+      <VoterDetailsPanel
+        voter={selectedVoter}
+        canDelete={canDelete}
+        onClose={() => setSelectedVoter(null)}
+        onEdit={() => {
+          openEdit(selectedVoter);
+          setSelectedVoter(null);
+        }}
+        onDelete={() => {
+          setConfirm(selectedVoter);
+          setSelectedVoter(null);
         }}
       />
 

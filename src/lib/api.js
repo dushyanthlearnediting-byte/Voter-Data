@@ -8,7 +8,7 @@
 // User:  { id, name, email, phone, role, wardId, wardName }
 // Ward:  { id, name, wardNumber }
 // Voter: { id, fullName, relativeName, voterId, phone, wardId, wardName, age, gender,
-//          houseNumber, address, status, notes, createdAt, createdBy }
+//          boothName, wardSerial, address, status, notes, createdAt, createdBy }
 
 import { supabase } from './supabase';
 
@@ -58,7 +58,8 @@ function mapVoter(r) {
     wardName: r.ward?.name || '',
     age: r.age,
     gender: r.gender || '',
-    houseNumber: r.house_number || '',
+    boothName: r.booth_name || '',
+    wardSerial: r.ward_serial ?? null,
     address: r.address || '',
     status: r.status,
     notes: r.notes || '',
@@ -76,7 +77,10 @@ function voterToDb(d) {
     ward_id: d.wardId,
     age: d.age ? Number(d.age) : null,
     gender: blank(d.gender),
-    house_number: blank(d.houseNumber),
+    booth_name: blank(d.boothName),
+    ward_serial: d.wardSerial === '' || d.wardSerial === null || d.wardSerial === undefined
+      ? null
+      : Number(d.wardSerial),
     address: blank(d.address),
     status: d.status || 'not_visited',
     notes: blank(d.notes),
@@ -314,7 +318,8 @@ const COLUMNS = [
   { header: 'Ward', key: 'ward', width: 12 },
   { header: 'Age', key: 'age', width: 7 },
   { header: 'Gender', key: 'gender', width: 10 },
-  { header: 'House Number', key: 'house', width: 14 },
+  { header: 'Booth name', key: 'booth', width: 20 },
+  { header: 'Ward serial', key: 'wardSerial', width: 12 },
   { header: 'Address', key: 'address', width: 30 },
   { header: 'Status', key: 'status', width: 18 },
   { header: 'Notes', key: 'notes', width: 30 },
@@ -340,7 +345,8 @@ export async function exportVoters(wardId = null) {
       ward: r.ward?.name || '',
       age: r.age ?? '',
       gender: r.gender || '',
-      house: r.house_number || '',
+      booth: r.booth_name || '',
+      wardSerial: r.ward_serial ?? '',
       address: r.address || '',
       status: STATUS_LABELS[r.status] || r.status,
       notes: r.notes || '',
@@ -371,7 +377,8 @@ export async function downloadImportTemplate() {
     ward: '5',
     age: 35,
     gender: 'male',
-    house: '2-45',
+    booth: 'North Primary School',
+    wardSerial: 12,
     address: 'Main Road',
     status: 'Not visited',
     notes: '',
@@ -382,6 +389,7 @@ export async function downloadImportTemplate() {
   [
     'Fill the Voters sheet. Delete the example row before uploading.',
     'Required: Name and Voter ID. Everything else is optional (Phone can be added later in the app).',
+    'Booth name and Ward serial are optional.',
     'Ward: the ward number (for example 5). Only the Main Admin needs this column. Sub-Admins always upload into their own ward.',
     'Phone: 10-digit mobile number starting with 6, 7, 8 or 9.',
     'Gender: male, female or other.  Status: Not visited, Visited or Follow-up needed.',
@@ -405,7 +413,8 @@ const HEADER_ALIASES = {
   ward: ['ward', 'wardno', 'wardnumber'],
   age: ['age'],
   gender: ['gender', 'sex'],
-  house: ['housenumber', 'houseno', 'hno', 'doorno', 'door'],
+  booth: ['booth', 'boothname', 'pollingbooth', 'pollingboothname'],
+  wardSerial: ['wardserial', 'serial', 'serialno', 'serialnumber', 'no'],
   address: ['address'],
   status: ['status'],
   notes: ['notes', 'remarks'],
@@ -502,6 +511,15 @@ export async function importVoters(file) {
       }
     }
 
+    const wardSerialText = get(row, 'wardSerial');
+    let wardSerial = null;
+    if (wardSerialText) {
+      wardSerial = Number(wardSerialText);
+      if (!Number.isInteger(wardSerial)) {
+        return errors.push({ row: rowNumber, message: `Ward serial "${wardSerialText}" must be a whole number` });
+      }
+    }
+
     let wardId;
     if (user.role === 'admin') {
       const m = get(row, 'ward').match(/\d+/);
@@ -521,7 +539,8 @@ export async function importVoters(file) {
       ward_id: wardId,
       age,
       gender: blank(normGender(get(row, 'gender'))),
-      house_number: blank(get(row, 'house')),
+      booth_name: blank(get(row, 'booth')),
+      ward_serial: wardSerial,
       address: blank(get(row, 'address')),
       status: normStatus(get(row, 'status')),
       notes: blank(get(row, 'notes')),
@@ -547,5 +566,80 @@ export async function importVoters(file) {
     total: totalRows,
     skippedExisting,
     errors, // [{ row, message }]
+  };
+}
+
+// ---------- Message templates and contact links ----------
+export const PLACEHOLDERS = [
+  { token: '(name)', label: 'Voter name' },
+  { token: '(VoterId)', label: 'Voter ID' },
+  { token: '(relative)', label: 'Relative name' },
+  { token: '(phone)', label: 'Phone number' },
+  { token: '(ward)', label: 'Ward' },
+  { token: '(booth)', label: 'Booth name' },
+  { token: '(age)', label: 'Age' },
+  { token: '(gender)', label: 'Gender' },
+  { token: '(No)', label: 'Ward serial number' },
+];
+
+const DEFAULT_MESSAGE = 'Hello (name), this is regarding your voter record (VoterId) in (ward).';
+let messageTemplate = DEFAULT_MESSAGE;
+
+export function getMessageTemplate() {
+  const canEdit = currentUser?.role === 'admin';
+  return {
+    message: messageTemplate,
+    canEdit,
+    appliesTo: currentUser?.role === 'admin'
+      ? 'All wards'
+      : currentUser?.wardName || 'Your ward',
+    isDefault: messageTemplate === DEFAULT_MESSAGE,
+  };
+}
+
+export function saveMessageTemplate(message) {
+  if (currentUser?.role !== 'admin') {
+    throw new Error('Only an admin can change this message');
+  }
+  if (typeof message !== 'string') {
+    throw new Error('Message template must be text');
+  }
+  messageTemplate = message;
+  return messageTemplate;
+}
+
+export function renderMessage(template, voter = {}) {
+  const values = {
+    name: voter.fullName,
+    voterid: voter.voterId,
+    relative: voter.relativeName,
+    phone: voter.phone,
+    ward: voter.wardName,
+    booth: voter.boothName,
+    age: voter.age,
+    gender: voter.gender,
+    no: voter.wardSerial,
+  };
+  return String(template ?? '').replace(/\(([^)]+)\)/g, (match, key) => {
+    const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    return Object.prototype.hasOwnProperty.call(values, normalized)
+      ? (values[normalized] ?? '').toString()
+      : match;
+  });
+}
+
+export function getContactLinks(voter, template) {
+  const phone = String(voter?.phone || '').replace(/[^\d+]/g, '');
+  const canContact = Boolean(phone);
+  const message = renderMessage(template, voter);
+  const encodedMessage = encodeURIComponent(message);
+  const whatsappPhone = phone.replace(/\D/g, '');
+  const whatsappNumber = whatsappPhone.length === 10 ? `91${whatsappPhone}` : whatsappPhone;
+  return {
+    canContact,
+    call: canContact ? `tel:${phone}` : '',
+    sms: canContact ? `sms:${phone}?body=${encodedMessage}` : '',
+    whatsapp: canContact ? `https://wa.me/${whatsappNumber}?text=${encodedMessage}` : '',
+    message,
   };
 }
