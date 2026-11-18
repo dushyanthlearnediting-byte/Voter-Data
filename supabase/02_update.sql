@@ -111,3 +111,5 @@ as $$
 $$;
 
 grant execute on function public.dashboard_stats() to authenticated;
+
+notify pgrst, 'reload schema';
