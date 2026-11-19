@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Search, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight,
-  Download, Upload, Filter, X, Phone, MapPin, Calendar, FileSpreadsheet,
+  Download, Upload, Filter, X, Phone, MapPin, Calendar, Building2,
 } from 'lucide-react';
-import { getVoters, getWards, deleteVoter, exportVoters, importVoters, downloadImportTemplate } from '@/lib/api';
+import { getVoters, getWards, deleteVoter, exportVoters, importVoters, getMessageTemplate, getContactLinks } from '@/lib/api';
 import { STATUS_OPTIONS, statusMeta, formatDate } from '@/lib/format';
 import { useToast } from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -14,7 +14,7 @@ const PAGE_SIZE = 50;
 
 export default function VotersPage({ user }) {
   const isAdmin = user.role === 'admin';
-  const canEditAll = user.role === 'admin' || user.role === 'sub_admin';
+  const canFullEdit = isAdmin;
   const canExport = user.role === 'admin' || user.role === 'sub_admin';
   const canDelete = user.role !== 'data_entry';
 
@@ -33,14 +33,16 @@ export default function VotersPage({ user }) {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [selectedVoter, setSelectedVoter] = useState(null);
   const [confirm, setConfirm] = useState(null);
+  const [selectedVoter, setSelectedVoter] = useState(null);
+  const [messageTemplate, setMessageTemplate] = useState('');
   const toast = useToast();
   const fileRef = useRef(null);
   const searchTimer = useRef(null);
 
   useEffect(() => {
     getWards().then(setWards);
+    getMessageTemplate().then((t) => setMessageTemplate(t.message)).catch(() => {});
   }, []);
 
   const load = useCallback(async () => {
@@ -63,20 +65,12 @@ export default function VotersPage({ user }) {
     }
   }, [search, wardId, status, page, toast]);
 
-  const prevFilters = useRef({ search, wardId, status });
   useEffect(() => {
-    const p = prevFilters.current;
-    const filtersChanged = p.search !== search || p.wardId !== wardId || p.status !== status;
-    prevFilters.current = { search, wardId, status };
-
-    // a new search/filter always starts from page 1 (this effect then runs again)
-    if (filtersChanged && page !== 1) {
-      setPage(1);
-      return undefined;
-    }
-    // wait a moment while typing in the search box; load at once for page changes
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(load, filtersChanged ? 350 : 0);
+    searchTimer.current = setTimeout(() => {
+      setPage(1);
+      load();
+    }, 350);
     return () => clearTimeout(searchTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, wardId, status, page]);
@@ -89,6 +83,9 @@ export default function VotersPage({ user }) {
     setEditing(voter);
     setFormOpen(true);
   }
+  function openDetails(voter) {
+    setSelectedVoter(voter);
+  }
 
   async function handleDelete() {
     if (!confirm) return;
@@ -96,7 +93,7 @@ export default function VotersPage({ user }) {
       await deleteVoter(confirm.id);
       toast.success('Voter deleted');
       setConfirm(null);
-      setSelectedVoter(null);
+      if (selectedVoter?.id === confirm.id) setSelectedVoter(null);
       load();
     } catch (err) {
       toast.error(err.message || 'Could not delete voter');
@@ -120,14 +117,7 @@ export default function VotersPage({ user }) {
     if (!file) return;
     try {
       const res = await importVoters(file);
-      const parts = [`Imported ${res.added} of ${res.total} rows`];
-      if (res.skippedExisting) parts.push(`${res.skippedExisting} already in the list`);
-      if (res.errors.length) parts.push(`${res.errors.length} rows had problems`);
-      toast.success(parts.join(' · '));
-      if (res.errors.length) {
-        const first = res.errors.slice(0, 3).map((er) => `Row ${er.row}: ${er.message}`).join('  |  ');
-        toast.error(`${first}${res.errors.length > 3 ? `  (+${res.errors.length - 3} more)` : ''}`);
-      }
+      toast.success(`Imported ${res.added} of ${res.total} rows`);
       load();
     } catch (err) {
       toast.error(err.message || 'Import failed');
@@ -176,14 +166,7 @@ export default function VotersPage({ user }) {
                   <span className="hidden sm:inline">Import from Excel</span>
                   <span className="sm:hidden">Import</span>
                 </button>
-                <button
-                  onClick={() => downloadImportTemplate().catch((err) => toast.error(err.message || 'Could not create template'))}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 transition"
-                >
-                  <FileSpreadsheet size={16} />
-                  <span className="hidden sm:inline">Template</span>
-                </button>
-                <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={handleImportFile} />
+                <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleImportFile} />
               </>
             )}
             <button
@@ -203,7 +186,7 @@ export default function VotersPage({ user }) {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, voter ID or phone…"
+              placeholder="Search name, voter ID, phone or serial number…"
               className="w-full rounded-xl border border-slate-300 bg-white pl-11 pr-4 py-3 text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-200 outline-none transition"
             />
             {search && (
@@ -291,8 +274,8 @@ export default function VotersPage({ user }) {
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Voter ID</th>
                   <th className="px-4 py-3">Phone</th>
+                  <th className="px-4 py-3">Booth</th>
                   {isAdmin && <th className="px-4 py-3">Ward</th>}
-                  <th className="px-4 py-3">Booth name</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Added</th>
                   <th className="px-4 py-3 text-right">Actions</th>
@@ -304,36 +287,37 @@ export default function VotersPage({ user }) {
                   return (
                     <tr
                       key={v.id}
-                      onClick={() => setSelectedVoter(v)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setSelectedVoter(v);
-                        }
-                      }}
-                      tabIndex={0}
-                      className="cursor-pointer hover:bg-slate-50/70 transition"
+                      className="hover:bg-slate-50/70 transition cursor-pointer"
+                      onClick={() => openDetails(v)}
                     >
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-900">{v.fullName}</div>
                         <div className="text-xs text-slate-500">{v.age ? `${v.age} yrs` : ''}{v.gender ? ` · ${v.gender}` : ''}</div>
-                        {v.relativeName && <div className="text-xs text-slate-400">C/o {v.relativeName}</div>}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-slate-700">{v.voterId}</td>
-                      <td className="px-4 py-3 text-slate-700">{v.phone || '—'}</td>
+                      <td className="px-4 py-3 text-slate-700">{v.phone}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {v.boothName ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Building2 size={12} className="text-slate-400" />
+                            {v.boothName}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
                       {isAdmin && <td className="px-4 py-3 text-slate-700">{v.wardName}</td>}
-                      <td className="px-4 py-3 text-slate-700">{v.boothName || '—'}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${sm.className}`}>
                           {sm.label}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-500 text-xs">{formatDate(v.createdAt)}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
-                          {canEditAll && (
+                          {canFullEdit && (
                             <button
-                              onClick={(event) => { event.stopPropagation(); openEdit(v); }}
+                              onClick={() => openEdit(v)}
                               className="rounded-lg p-2 text-slate-500 hover:bg-brand-50 hover:text-brand-700 transition"
                               aria-label="Edit"
                             >
@@ -342,7 +326,7 @@ export default function VotersPage({ user }) {
                           )}
                           {canDelete && (
                             <button
-                              onClick={(event) => { event.stopPropagation(); setConfirm(v); }}
+                              onClick={() => setConfirm(v)}
                               className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600 transition"
                               aria-label="Delete"
                             >
@@ -365,16 +349,8 @@ export default function VotersPage({ user }) {
               return (
                 <div
                   key={v.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSelectedVoter(v)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      setSelectedVoter(v);
-                    }
-                  }}
-                  className="cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm cursor-pointer active:bg-slate-50/70 transition"
+                  onClick={() => openDetails(v)}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -386,15 +362,17 @@ export default function VotersPage({ user }) {
                     </span>
                   </div>
                   <div className="mt-3 space-y-1.5 text-sm text-slate-600">
-                    <p className="flex items-center gap-2"><Phone size={14} className="text-slate-400" /> {v.phone || '—'}</p>
+                    <p className="flex items-center gap-2"><Phone size={14} className="text-slate-400" /> {v.phone}</p>
+                    {v.boothName && (
+                      <p className="flex items-center gap-2"><Building2 size={14} className="text-slate-400" /> {v.boothName}</p>
+                    )}
                     {isAdmin && <p className="flex items-center gap-2"><MapPin size={14} className="text-slate-400" /> {v.wardName}</p>}
-                    <p className="flex items-center gap-2"><MapPin size={14} className="text-slate-400" /> {v.boothName || 'Booth name not set'}</p>
                     <p className="flex items-center gap-2"><Calendar size={14} className="text-slate-400" /> {formatDate(v.createdAt)}</p>
                   </div>
-                  <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3">
-                    {canEditAll && (
+                  <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3" onClick={(e) => e.stopPropagation()}>
+                    {canFullEdit && (
                       <button
-                        onClick={(event) => { event.stopPropagation(); openEdit(v); }}
+                        onClick={() => openEdit(v)}
                         className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 transition"
                       >
                         <Pencil size={15} /> Edit
@@ -402,7 +380,7 @@ export default function VotersPage({ user }) {
                     )}
                     {canDelete && (
                       <button
-                        onClick={(event) => { event.stopPropagation(); setConfirm(v); }}
+                        onClick={() => setConfirm(v)}
                         className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-100 transition"
                       >
                         <Trash2 size={15} /> Delete
@@ -455,22 +433,15 @@ export default function VotersPage({ user }) {
 
       <VoterDetailsPanel
         voter={selectedVoter}
+        messageTemplate={messageTemplate}
         canDelete={canDelete}
-        canEditAll={canEditAll}
+        userRole={user.role}
         onClose={() => setSelectedVoter(null)}
-        onEdit={() => {
-          openEdit(selectedVoter);
-          setSelectedVoter(null);
-        }}
-        onDelete={() => {
-          setConfirm(selectedVoter);
-          setSelectedVoter(null);
-        }}
-        onPhoneSaved={(updatedVoter) => {
-          setSelectedVoter(updatedVoter);
-          setVoters((current) => current.map((voter) => (
-            voter.id === updatedVoter.id ? updatedVoter : voter
-          )));
+        onEdit={(v) => { setSelectedVoter(null); openEdit(v); }}
+        onDelete={(v) => { setConfirm(v); }}
+        onVoterUpdated={(updated) => {
+          setSelectedVoter(updated);
+          load();
         }}
       />
 

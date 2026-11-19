@@ -1,183 +1,254 @@
 import { useEffect, useState } from 'react';
-import { Loader2, MessageCircle, Pencil, Phone, Save, Trash2, X } from 'lucide-react';
-import { getContactLinks, getMessageTemplate, updateVoterPhone } from '@/lib/api';
-import { formatDate } from '@/lib/format';
+import {
+  X, Pencil, Trash2, Phone, MessageSquare, MessageCircle, Building2,
+  Hash, MapPin, Calendar, User, IdCard, Phone as PhoneIcon, UserCircle,
+} from 'lucide-react';
+import { getContactLinks, updateVoter } from '@/lib/api';
+import { statusMeta, formatDate } from '@/lib/format';
 import { useToast } from '@/components/Toast';
 
-export default function VoterDetailsPanel({ voter, canDelete, canEditAll, onClose, onEdit, onDelete, onPhoneSaved }) {
+export default function VoterDetailsPanel({ voter, messageTemplate, canDelete, userRole, onClose, onEdit, onDelete, onVoterUpdated }) {
   const [editedMessage, setEditedMessage] = useState('');
-  const [phone, setPhone] = useState('');
-  const [savingPhone, setSavingPhone] = useState(false);
+  const [phoneEditing, setPhoneEditing] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState('');
+  const [phoneSaving, setPhoneSaving] = useState(false);
   const toast = useToast();
 
-  useEffect(() => {
-    setEditedMessage(getMessageTemplate().message);
-  }, [voter?.id]);
+  const isAdmin = userRole === 'admin';
+  const canEditPhone = userRole === 'sub_admin' || userRole === 'data_entry';
 
   useEffect(() => {
-    if (voter) setPhone(voter.phone || '');
-  }, [voter?.id, voter?.phone]);
+    if (voter && messageTemplate) {
+      setEditedMessage(messageTemplate);
+    }
+    setPhoneEditing(false);
+  }, [voter, messageTemplate]);
 
   if (!voter) return null;
 
-  const links = getContactLinks(voter, editedMessage);
-  const actions = [
-    { label: 'Call', href: links.call, icon: Phone, className: 'bg-emerald-600 hover:bg-emerald-700' },
-    { label: 'SMS', href: links.sms, icon: MessageCircle, className: 'bg-blue-600 hover:bg-blue-700' },
-    { label: 'WhatsApp', href: links.whatsapp, icon: MessageCircle, className: 'bg-green-800 hover:bg-green-900', external: true },
-  ];
-  const details = [
-    ['Voter ID', voter.voterId],
-    ['Relative name', voter.relativeName],
-    ['Ward', voter.wardName],
-    ['Booth name', voter.boothName],
-    ['Ward serial', voter.wardSerial],
-    ['Age', voter.age],
-    ['Gender', voter.gender],
-    ['Address', voter.address],
-    ['Status', voter.status?.replace('_', ' ')],
-    ['Added', formatDate(voter.createdAt)],
-    ['Added by', voter.createdBy],
-    ['Notes', voter.notes],
-  ];
-  const phoneChanged = phone !== (voter.phone || '');
-  const phoneValid = !phone || /^[6-9]\d{9}$/.test(phone);
+  function startPhoneEdit() {
+    setPhoneDraft(voter.phone || '');
+    setPhoneEditing(true);
+  }
 
   async function handleSavePhone() {
-    setSavingPhone(true);
+    if (!/^\d{10}$/.test(phoneDraft)) {
+      toast.error('Phone must be exactly 10 digits');
+      return;
+    }
+    setPhoneSaving(true);
     try {
-      const updatedVoter = await updateVoterPhone(voter.id, phone);
-      onPhoneSaved?.(updatedVoter);
+      const updated = await updateVoter(voter.id, { phone: phoneDraft });
       toast.success('Phone number updated');
+      setPhoneEditing(false);
+      onVoterUpdated?.(updated);
     } catch (err) {
-      toast.error(err.message || 'Could not update phone number');
+      toast.error(err.message || 'Could not update phone');
     } finally {
-      setSavingPhone(false);
+      setPhoneSaving(false);
     }
   }
 
+  const sm = statusMeta(voter.status);
+  const links = getContactLinks(voter, editedMessage || messageTemplate);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-stretch sm:justify-end">
-      <button
-        type="button"
-        aria-label="Close voter details"
-        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+    <>
+      {/* Overlay */}
+      <div
+        className="fixed inset-0 z-[70] bg-slate-900/50 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
       />
-      <section className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-2xl animate-slide-up sm:h-full sm:max-h-none sm:max-w-xl sm:rounded-none sm:animate-fade-in">
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur">
+
+      {/* Bottom sheet on mobile, right side panel on desktop */}
+      <aside className="fixed z-[71] inset-x-0 bottom-0 sm:inset-y-0 sm:right-0 sm:left-auto sm:w-[400px] bg-white shadow-2xl rounded-t-2xl sm:rounded-none flex flex-col max-h-[85vh] sm:max-h-screen animate-slide-up sm:animate-none overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 flex-none">
           <div className="min-w-0">
-            <h2 className="truncate text-lg font-semibold text-slate-900">{voter.fullName}</h2>
-            <p className="font-mono text-xs text-slate-500">{voter.voterId}</p>
+            <h3 className="text-lg font-semibold text-slate-900 truncate">{voter.fullName}</h3>
+            <p className="text-xs text-slate-500 font-mono mt-0.5">{voter.voterId}</p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Close">
+          <button
+            onClick={onClose}
+            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+          >
             <X size={20} />
           </button>
         </div>
 
-        <div className="space-y-5 p-5">
-          <div className="grid grid-cols-3 gap-2">
-            {actions.map(({ label, href, icon: Icon, className, external }) => (
-              links.canContact ? (
-                <a
-                  key={label}
-                  href={href}
-                  target={external ? '_blank' : undefined}
-                  rel={external ? 'noreferrer' : undefined}
-                  className={`flex min-h-14 items-center justify-center gap-2 rounded-xl px-2 py-3 text-sm font-semibold text-white transition ${className}`}
-                >
-                  <Icon size={18} /> {label}
-                </a>
-              ) : (
-                <button
-                  key={label}
-                  type="button"
-                  disabled
-                  className={`flex min-h-14 items-center justify-center gap-2 rounded-xl px-2 py-3 text-sm font-semibold text-white opacity-40 ${className}`}
-                >
-                  <Icon size={18} /> {label}
-                </button>
-              )
-            ))}
-          </div>
-
-          {!links.canContact && (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              No phone number. Add one below to enable calling and messaging.
-            </p>
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* Contact buttons */}
+          {links.canContact ? (
+            <div className="grid grid-cols-3 gap-2.5">
+              <a
+                href={links.call}
+                className="flex flex-col items-center gap-1.5 rounded-xl bg-green-500 px-2 py-3.5 text-white hover:bg-green-600 active:scale-[0.98] transition shadow-sm"
+              >
+                <Phone size={22} />
+                <span className="text-xs font-semibold">Call</span>
+              </a>
+              <a
+                href={links.sms}
+                className="flex flex-col items-center gap-1.5 rounded-xl bg-blue-500 px-2 py-3.5 text-white hover:bg-blue-600 active:scale-[0.98] transition shadow-sm"
+              >
+                <MessageSquare size={22} />
+                <span className="text-xs font-semibold">SMS</span>
+              </a>
+              <a
+                href={links.whatsapp}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-col items-center gap-1.5 rounded-xl bg-[#075E54] px-2 py-3.5 text-white hover:bg-[#064d44] active:scale-[0.98] transition shadow-sm"
+              >
+                <MessageCircle size={22} />
+                <span className="text-xs font-semibold">WhatsApp</span>
+              </a>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 text-center">
+              <p className="text-sm text-amber-800 font-medium">
+                {canEditPhone ? 'No phone number. Tap the phone field below to add one.' : 'No phone number.'}
+              </p>
+            </div>
           )}
 
-          <div>
-            <label htmlFor="voter-phone" className="mb-2 block text-sm font-semibold text-slate-800">
-              Phone number
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="voter-phone"
-                inputMode="numeric"
-                maxLength={10}
-                value={phone}
-                onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 10))}
-                placeholder="10-digit mobile number"
-                className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+          {/* Editable message preview */}
+          {links.canContact && (
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                Message (edit before sending)
+              </label>
+              <textarea
+                rows={4}
+                value={editedMessage}
+                onChange={(e) => setEditedMessage(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-slate-900 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-200 resize-none text-sm leading-relaxed"
               />
-              <button
-                type="button"
-                onClick={handleSavePhone}
-                disabled={!phoneChanged || !phoneValid || savingPhone}
-                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {savingPhone ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
-                <span className="hidden sm:inline">Save</span>
-              </button>
+              <p className="mt-1.5 text-xs text-slate-400">
+                SMS and WhatsApp links update as you edit.
+              </p>
             </div>
-            {!phoneValid && <p className="mt-1 text-xs text-red-600">Enter a 10-digit mobile number starting with 6, 7, 8 or 9</p>}
-          </div>
+          )}
 
-          <div>
-            <label htmlFor="voter-message-preview" className="mb-2 block text-sm font-semibold text-slate-800">
-              Message preview
-            </label>
-            <textarea
-              id="voter-message-preview"
-              rows={5}
-              value={links.message}
-              onChange={(event) => setEditedMessage(event.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm leading-relaxed text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
-            {details.filter(([, value]) => value !== null && value !== undefined && value !== '').map(([label, value]) => (
-              <div key={label} className="min-w-0 py-1">
-                <p className="text-xs font-medium text-slate-500">{label}</p>
-                <p className="break-words text-sm text-slate-800">{value}</p>
+          {/* Details */}
+          <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4 space-y-3">
+            <DetailRow icon={IdCard} label="Voter ID" value={voter.voterId} mono />
+            <div className="flex items-start gap-3">
+              <PhoneIcon size={16} className="text-slate-400 mt-0.5 flex-none" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-slate-500">Phone</p>
+                {phoneEditing ? (
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      inputMode="numeric"
+                      maxLength={10}
+                      value={phoneDraft}
+                      onChange={(e) => setPhoneDraft(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm font-mono text-slate-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                      placeholder="9876543210"
+                    />
+                    <button
+                      onClick={() => handleSavePhone()}
+                      disabled={phoneSaving}
+                      className="rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+                    >
+                      {phoneSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => { setPhoneEditing(false); setPhoneDraft(''); }}
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : canEditPhone ? (
+                  <button
+                    onClick={startPhoneEdit}
+                    className="group inline-flex items-center gap-1.5 text-sm font-mono text-slate-800 hover:text-brand-700 transition"
+                  >
+                    {voter.phone || '—'}
+                    <Pencil size={13} className="text-slate-300 group-hover:text-brand-600 transition" />
+                  </button>
+                ) : (
+                  <div className="text-sm text-slate-800 font-mono">{voter.phone || '—'}</div>
+                )}
               </div>
-            ))}
-          </div>
-
-          <div className="flex gap-3 border-t border-slate-100 pt-4">
-            {canEditAll && (
-              <button
-                type="button"
-                onClick={onEdit}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-50 px-4 py-3 text-sm font-semibold text-brand-700 transition hover:bg-brand-100"
-              >
-                <Pencil size={16} /> Edit
-              </button>
+            </div>
+            <DetailRow
+              icon={UserCircle}
+              label="Status"
+              value={
+                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${sm.className}`}>
+                  {sm.label}
+                </span>
+              }
+            />
+            <DetailRow icon={Building2} label="Booth" value={voter.boothName || '—'} />
+            {voter.wardSerial != null && (
+              <DetailRow icon={Hash} label="Serial number" value={String(voter.wardSerial)} />
             )}
-            {canDelete && (
-              <button
-                type="button"
-                onClick={onDelete}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-100"
-              >
-                <Trash2 size={16} /> Delete
-              </button>
+            {voter.wardName && (
+              <DetailRow icon={MapPin} label="Ward" value={voter.wardName} />
+            )}
+            {voter.age != null && (
+              <DetailRow icon={User} label="Age" value={`${voter.age} yrs`} />
+            )}
+            {voter.gender && (
+              <DetailRow
+                icon={User}
+                label="Gender"
+                value={voter.gender.charAt(0).toUpperCase() + voter.gender.slice(1)}
+              />
+            )}
+            <DetailRow icon={Calendar} label="Added" value={formatDate(voter.createdAt)} />
+            {voter.address && (
+              <div className="pt-1 border-t border-slate-100">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Address</p>
+                <p className="text-sm text-slate-700 leading-relaxed">{voter.address}</p>
+              </div>
+            )}
+            {voter.notes && (
+              <div className="pt-1 border-t border-slate-100">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Notes</p>
+                <p className="text-sm text-slate-700 leading-relaxed">{voter.notes}</p>
+              </div>
             )}
           </div>
         </div>
-      </section>
+
+        {/* Footer actions */}
+        <div className="flex gap-3 border-t border-slate-100 bg-white px-5 py-3.5 flex-none">
+          {isAdmin && (
+            <button
+              onClick={() => onEdit(voter)}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-brand-50 px-4 py-3 text-sm font-semibold text-brand-700 hover:bg-brand-100 transition"
+            >
+              <Pencil size={17} /> Edit
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={() => onDelete(voter)}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-100 transition"
+            >
+              <Trash2 size={17} /> Delete
+            </button>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function DetailRow({ icon: Icon, label, value, mono }) {
+  return (
+    <div className="flex items-start gap-3">
+      <Icon size={16} className="text-slate-400 mt-0.5 flex-none" />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-slate-500">{label}</p>
+        <div className={`text-sm text-slate-800 ${mono ? 'font-mono' : ''}`}>{value}</div>
+      </div>
     </div>
   );
 }

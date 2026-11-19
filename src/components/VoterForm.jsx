@@ -13,12 +13,11 @@ const GENDERS = [
 
 const emptyForm = {
   fullName: '',
-  relativeName: '',
-  boothName: '',
-  wardSerial: '',
   voterId: '',
   phone: '',
   wardId: '',
+  boothName: '',
+  wardSerial: '',
   age: '',
   gender: '',
   address: '',
@@ -49,12 +48,11 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
     if (voter) {
       setForm({
         fullName: voter.fullName || '',
-        relativeName: voter.relativeName || '',
-        boothName: voter.boothName || '',
-        wardSerial: voter.wardSerial ?? '',
         voterId: voter.voterId || '',
         phone: voter.phone || '',
         wardId: voter.wardId ?? '',
+        boothName: voter.boothName || '',
+        wardSerial: voter.wardSerial ?? '',
         age: voter.age ?? '',
         gender: voter.gender || '',
         address: voter.address || '',
@@ -81,12 +79,10 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
     const e = {};
     if (!form.fullName.trim()) e.fullName = 'Full name is required';
     if (!form.voterId.trim()) e.voterId = 'Voter ID is required';
-    // Phone is optional (voters imported from the official list get their phone added later)
-    if (form.phone.trim() && !/^[6-9]\d{9}$/.test(form.phone.trim())) {
-      e.phone = 'Enter a 10-digit mobile number starting with 6, 7, 8 or 9';
-    }
+    if (!form.phone.trim()) e.phone = 'Phone is required';
+    else if (!/^\d{10}$/.test(form.phone.trim())) e.phone = 'Phone must be exactly 10 digits';
     if (!form.wardId) e.wardId = 'Ward is required';
-    if (form.age && (Number(form.age) < 18 || Number(form.age) > 120)) e.age = 'Age must be 18 to 120';
+    if (form.age && (Number(form.age) < 1 || Number(form.age) > 120)) e.age = 'Enter a valid age';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -97,8 +93,9 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
     setSaving(true);
     const payload = {
       ...form,
+      wardSerial: form.wardSerial ? Number(form.wardSerial) : null,
       age: form.age ? Number(form.age) : null,
-      wardId: form.wardId,
+      wardId: Number(form.wardId),
     };
     try {
       if (voter) {
@@ -140,25 +137,6 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
           </Field>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Father / Husband name">
-              <input
-                className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200`}
-                value={form.relativeName}
-                onChange={(e) => setField('relativeName', e.target.value)}
-                placeholder="As printed in the voter list"
-              />
-            </Field>
-            <Field label="Booth name">
-              <input
-                className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200`}
-                value={form.boothName}
-                onChange={(e) => setField('boothName', e.target.value)}
-                placeholder="e.g. North Primary School"
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Voter ID" required error={errors.voterId}>
               <input
                 className={`${inputClass} ${errors.voterId ? 'border-red-400 focus:border-red-500 focus:ring-red-200' : 'border-slate-300 focus:border-brand-500 focus:ring-brand-200'}`}
@@ -167,7 +145,7 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
                 placeholder="ABC1234567"
               />
             </Field>
-            <Field label="Phone" error={errors.phone}>
+            <Field label="Phone" required error={errors.phone}>
               <input
                 inputMode="numeric"
                 maxLength={10}
@@ -179,7 +157,7 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
             </Field>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Field label="Ward" required error={errors.wardId}>
               <select
                 disabled={wardLocked}
@@ -194,6 +172,26 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
               </select>
               {wardLocked && <p className="mt-1 text-xs text-slate-400">Locked to your ward</p>}
             </Field>
+            <Field label="Booth name">
+              <input
+                className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200`}
+                value={form.boothName}
+                onChange={(e) => setField('boothName', e.target.value)}
+                placeholder="e.g. Booth 1 - Govt School"
+              />
+            </Field>
+            <Field label="Serial number">
+              <input
+                inputMode="numeric"
+                className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200`}
+                value={form.wardSerial}
+                onChange={(e) => setField('wardSerial', e.target.value.replace(/\D/g, '').slice(0, 5))}
+                placeholder="e.g. 42"
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Age" error={errors.age}>
               <input
                 inputMode="numeric"
@@ -201,15 +199,6 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
                 value={form.age}
                 onChange={(e) => setField('age', e.target.value.replace(/\D/g, '').slice(0, 3))}
                 placeholder="35"
-              />
-            </Field>
-            <Field label="Ward serial">
-              <input
-                inputMode="numeric"
-                className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200`}
-                value={form.wardSerial}
-                onChange={(e) => setField('wardSerial', e.target.value.replace(/\D/g, ''))}
-                placeholder="Optional"
               />
             </Field>
             <Field label="Gender">
@@ -231,7 +220,7 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
               className={`${inputClass} border-slate-300 focus:border-brand-500 focus:ring-brand-200 resize-none`}
               value={form.address}
               onChange={(e) => setField('address', e.target.value)}
-              placeholder="Street, area"
+              placeholder="Street, area, landmark"
             />
           </Field>
 

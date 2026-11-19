@@ -186,7 +186,7 @@ function UserAddForm({ open, user, wards, allowedRoles, onClose, onSaved }) {
     try {
       await createUser({
         ...form,
-        wardId: form.role === 'admin' ? null : form.wardId,
+        wardId: form.role === 'admin' ? null : Number(form.wardId),
       });
       toast.success('User created successfully');
       onSaved?.();
@@ -229,7 +229,7 @@ function UserAddForm({ open, user, wards, allowedRoles, onClose, onSaved }) {
                 className={`${inputClass} ${errBorder(errors.email)}`}
                 value={form.email}
                 onChange={(e) => setField('email', e.target.value)}
-                placeholder="user@example.com"
+                placeholder="user@ward.gov"
               />
             </Field>
             <Field label="Phone" required error={errors.phone}>
