@@ -186,7 +186,7 @@ function UserAddForm({ open, user, wards, allowedRoles, onClose, onSaved }) {
     try {
       await createUser({
         ...form,
-        wardId: form.role === 'admin' ? null : Number(form.wardId),
+        wardId: form.role === 'admin' ? null : form.wardId,
       });
       toast.success('User created successfully');
       onSaved?.();

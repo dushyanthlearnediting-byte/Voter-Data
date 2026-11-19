@@ -3,7 +3,7 @@ import {
   Search, Plus, Pencil, Trash2, Loader2, ChevronLeft, ChevronRight,
   Download, Upload, Filter, X, Phone, MapPin, Calendar, Building2,
 } from 'lucide-react';
-import { getVoters, getWards, deleteVoter, exportVoters, importVoters, getMessageTemplate, getContactLinks } from '@/lib/api';
+import { getVoters, getWards, deleteVoter, exportVoters, importVoters, getMessageTemplate } from '@/lib/api';
 import { STATUS_OPTIONS, statusMeta, formatDate } from '@/lib/format';
 import { useToast } from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -37,13 +37,18 @@ export default function VotersPage({ user }) {
   const [selectedVoter, setSelectedVoter] = useState(null);
   const [messageTemplate, setMessageTemplate] = useState('');
   const toast = useToast();
+  const { show } = toast;
   const fileRef = useRef(null);
   const searchTimer = useRef(null);
 
   useEffect(() => {
-    getWards().then(setWards);
-    getMessageTemplate().then((t) => setMessageTemplate(t.message)).catch(() => {});
-  }, []);
+    getWards().then(setWards).catch((err) => {
+      show(err.message || 'Could not load wards', 'error', 4000);
+    });
+    getMessageTemplate().then((t) => setMessageTemplate(t.message)).catch((err) => {
+      show(err.message || 'Could not load message settings', 'error', 4000);
+    });
+  }, [show]);
 
   const load = useCallback(async () => {
     setLoading(true);

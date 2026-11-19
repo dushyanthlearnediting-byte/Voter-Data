@@ -16,12 +16,17 @@ function AppInner() {
   const [previousView, setPreviousView] = useState('voters');
   const [loggingOut, setLoggingOut] = useState(false);
   const toast = useToast();
+  const { show } = toast;
 
   useEffect(() => {
     getCurrentUser()
       .then((u) => setUser(u))
+      .catch((err) => {
+        show(err.message || 'Could not restore your session', 'error', 4000);
+        setUser(null);
+      })
       .finally(() => setBooting(false));
-  }, []);
+  }, [show]);
 
   if (booting || loggingOut) {
     return <LoadingScreen label={loggingOut ? 'Signing out…' : 'Loading…'} />;
@@ -35,10 +40,12 @@ function AppInner() {
     setLoggingOut(true);
     try {
       await logout();
-    } finally {
       setUser(null);
-      setLoggingOut(false);
       toast.info('You have been signed out');
+    } catch (err) {
+      toast.error(err.message || 'Could not sign out');
+    } finally {
+      setLoggingOut(false);
     }
   }
 

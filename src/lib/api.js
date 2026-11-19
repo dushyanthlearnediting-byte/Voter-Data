@@ -1,361 +1,421 @@
-// All data access lives here. Components call only these functions.
-// Right now everything returns fake/sample data with simulated latency.
-// Later these can be swapped to real Supabase calls without touching components.
+import { getSupabase } from '@/lib/supabase';
 
-const DELAY = 450;
+const DEFAULT_TEMPLATE =
+  'Namaste (name), your voter ID is (VoterId). Please visit (booth) on election day. - Ward (ward)';
 
-function delay(ms = DELAY) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function throwIfError(error) {
+  if (error) throw new Error(error.message || 'The request could not be completed.');
 }
 
-// ---------- Types (documented as comments for now) ----------
-// Role: 'admin' | 'sub_admin' | 'data_entry'
-// Status: 'not_visited' | 'visited' | 'follow_up'
-//
-// User: { id, name, email, phone, role, wardId, wardName }
-// Ward: { id, name }
-// Voter: { id, fullName, voterId, phone, wardId, wardName, boothName, wardSerial, age, gender, address, status, notes, createdAt, createdBy }
-
-// ---------- Static sample data ----------
-const WARDS = [
-  { id: 1, name: 'Ward 1' },
-  { id: 2, name: 'Ward 2' },
-  { id: 3, name: 'Ward 3' },
-  { id: 4, name: 'Ward 4' },
-  { id: 5, name: 'Ward 5' },
-  { id: 6, name: 'Ward 6' },
-];
-
-const USERS = [
-  { id: 'u1', name: 'Admin User', email: 'admin@ward.gov', phone: '9000000001', role: 'admin', wardId: null, wardName: null },
-  { id: 'u2', name: 'Sneha Rao', email: 'subadmin5@ward.gov', phone: '9000000002', role: 'sub_admin', wardId: 5, wardName: 'Ward 5' },
-  { id: 'u3', name: 'Ravi Kumar', email: 'data5@ward.gov', phone: '9000000003', role: 'data_entry', wardId: 5, wardName: 'Ward 5' },
-  { id: 'u4', name: 'Priya Nair', email: 'dataentry1@ward.gov', phone: '9000000004', role: 'data_entry', wardId: 1, wardName: 'Ward 1' },
-];
-
-// Credentials map for fake login
-const CREDENTIALS = {
-  'admin@ward.gov': { password: 'admin123', userId: 'u1' },
-  'subadmin5@ward.gov': { password: 'sub123', userId: 'u2' },
-  'data5@ward.gov': { password: 'data123', userId: 'u3' },
-  'dataentry1@ward.gov': { password: 'data123', userId: 'u4' },
-};
-
-// Pre-computed list of data entry users for createdBy assignment
-const DATA_ENTRY_USERS = USERS.filter((u) => u.role === 'data_entry');
-
-const FIRST_NAMES = ['Aarav', 'Vivaan', 'Aditya', 'Vihaan', 'Arjun', 'Sai', 'Reyansh', 'Krishna', 'Ishaan', 'Rohit', 'Ananya', 'Diya', 'Saanvi', 'Aadhya', 'Kiara', 'Myra', 'Anika', 'Navya', 'Riya', 'Sneha', 'Karthik', 'Deepa', 'Lakshmi', 'Meena', 'Neha', 'Pooja', 'Ramesh', 'Suresh', 'Geeta', 'Harish'];
-const LAST_NAMES = ['Sharma', 'Reddy', 'Iyer', 'Gupta', 'Nair', 'Rao', 'Patel', 'Singh', 'Kumar', 'Menon', 'Pillai', 'Das', 'Bose', 'Joshi', 'Verma'];
-
-const BOOTH_NAMES = ['Booth 1 - Govt School', 'Booth 2 - Community Hall', 'Booth 3 - PG College', 'Booth 4 - Anganwadi', 'Booth 5 - Town Library'];
-
-function pick(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-function randomPhone() {
-  let p = '9';
-  for (let i = 0; i < 9; i++) p += Math.floor(Math.random() * 10);
-  return p;
-}
-function randomVoterId() {
-  let id = '';
-  for (let i = 0; i < 10; i++) id += Math.floor(Math.random() * 36).toString(36).toUpperCase();
-  return id;
-}
-function randomAddress(wardName) {
-  const streets = ['Gandhi Rd', 'Nehru St', 'MG Road', 'Patel Ave', 'Subhash Marg', 'Azad Lane', 'Lake View', 'Hill Top'];
-  return `${Math.floor(Math.random() * 200) + 1}, ${pick(streets)}, ${wardName}`;
-}
-function randomBooth() {
-  return pick(BOOTH_NAMES);
+function normalizeStatus(status) {
+  const value = String(status || 'not_visited').trim().toLowerCase();
+  if (value === 'visited') return 'visited';
+  if (value === 'follow_up' || value === 'follow-up needed') return 'follow_up';
+  return 'not_visited';
 }
 
-function isToday(iso) {
-  if (!iso) return false;
-  const d = new Date(iso);
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+function mapProfile(profile, ward) {
+  return {
+    id: profile.id,
+    name: profile.full_name,
+    email: profile.email || '',
+    phone: profile.phone || '',
+    role: profile.role,
+    wardId: profile.ward_id,
+    wardName: ward?.name || (ward?.ward_number ? `Ward ${ward.ward_number}` : null),
+  };
 }
 
-function generateVoters() {
-  const statuses = ['not_visited', 'visited', 'follow_up'];
-  const list = [];
-  const today = new Date();
-  const createdTodayIds = new Set();
-  for (let i = 0; i < 320; i++) {
-    const ward = pick(WARDS);
-    const status = pick(statuses);
-    const createdDate = new Date(today.getTime() - Math.floor(Math.random() * 20) * 86400000);
-    // make ~30 records created today
-    if (i < 30) {
-      createdDate.setFullYear(today.getFullYear(), today.getMonth(), today.getDate());
-      createdDate.setHours(9 + Math.floor(Math.random() * 10), Math.floor(Math.random() * 60));
-      createdTodayIds.add(i);
+function mapVoter(row) {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    relativeName: row.relative_name || '',
+    voterId: row.voter_id,
+    phone: row.phone || '',
+    wardId: row.ward_id,
+    wardName: row.ward?.name || row.ward_name || '',
+    boothName: row.booth_name || '',
+    wardSerial: row.ward_serial,
+    age: row.age,
+    gender: row.gender || '',
+    address: row.address || '',
+    status: normalizeStatus(row.status),
+    notes: row.notes || '',
+    createdAt: row.created_at,
+    createdBy: row.created_by || null,
+  };
+}
+
+function mapVoterInput(data) {
+  const fields = {
+    fullName: 'full_name',
+    relativeName: 'relative_name',
+    voterId: 'voter_id',
+    phone: 'phone',
+    wardId: 'ward_id',
+    boothName: 'booth_name',
+    wardSerial: 'ward_serial',
+    age: 'age',
+    gender: 'gender',
+    address: 'address',
+    status: 'status',
+    notes: 'notes',
+  };
+  const result = {};
+  for (const [source, target] of Object.entries(fields)) {
+    if (!Object.prototype.hasOwnProperty.call(data, source)) continue;
+    let value = data[source];
+    if (source === 'status') value = normalizeStatus(value);
+    if (source === 'phone' || source === 'relativeName' || source === 'boothName' ||
+        source === 'gender' || source === 'address' || source === 'notes') {
+      value = value || null;
     }
-    list.push({
-      id: `v${i + 1}`,
-      fullName: `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`,
-      voterId: randomVoterId(),
-      phone: randomPhone(),
-      wardId: ward.id,
-      wardName: ward.name,
-      boothName: randomBooth(),
-      wardSerial: Math.floor(Math.random() * 800) + 1,
-      age: 18 + Math.floor(Math.random() * 60),
-      gender: pick(['male', 'female', 'other']),
-      address: randomAddress(ward.name),
-      status,
-      notes: Math.random() < 0.25 ? 'Door locked on visit. Follow up next week.' : '',
-      createdAt: createdDate.toISOString(),
-      createdBy: pick(DATA_ENTRY_USERS).name,
-    });
+    if (source === 'wardId') value = value || null;
+    if ((source === 'wardSerial' || source === 'age') && value === '') value = null;
+    result[target] = value;
   }
-  // ensure today's count is 30
-  return { list, todayCount: createdTodayIds.size };
+  return result;
 }
 
-const { list: VOTERS, todayCount: TODAY_COUNT } = generateVoters();
-
-// In-memory session
-let SESSION = null;
-
-// ---------- Auth ----------
-export async function login(email, password) {
-  await delay();
-  const cred = CREDENTIALS[email.toLowerCase()];
-  if (!cred || cred.password !== password) {
-    throw new Error('Invalid email or password');
+async function loadProfile(authUser) {
+  const client = getSupabase();
+  const { data: profile, error } = await client
+    .from('profiles')
+    .select('id, full_name, email, phone, role, ward_id, is_active')
+    .eq('id', authUser.id)
+    .maybeSingle();
+  throwIfError(error);
+  if (!profile || !profile.is_active) {
+    const { error: signOutError } = await client.auth.signOut();
+    throwIfError(signOutError);
+    return null;
   }
-  const user = USERS.find((u) => u.id === cred.userId);
-  SESSION = user;
-  return SESSION;
+
+  let ward = null;
+  if (profile.ward_id) {
+    const { data, error: wardError } = await client
+      .from('wards')
+      .select('id, name, ward_number')
+      .eq('id', profile.ward_id)
+      .maybeSingle();
+    throwIfError(wardError);
+    ward = data;
+  }
+  return mapProfile({ ...profile, email: profile.email || authUser.email }, ward);
+}
+
+export async function login(email, password) {
+  const client = getSupabase();
+  const { data, error } = await client.auth.signInWithPassword({
+    email: email.trim().toLowerCase(),
+    password,
+  });
+  throwIfError(error);
+  const user = await loadProfile(data.user);
+  if (!user) throw new Error('Your account is inactive or is not set up. Contact your administrator.');
+  return user;
 }
 
 export async function logout() {
-  await delay(150);
-  SESSION = null;
+  const { error } = await getSupabase().auth.signOut();
+  throwIfError(error);
 }
 
 export async function getCurrentUser() {
-  await delay(150);
-  return SESSION;
+  const { data, error } = await getSupabase().auth.getSession();
+  throwIfError(error);
+  if (!data.session?.user) return null;
+  return loadProfile(data.session.user);
 }
 
-// ---------- Wards ----------
 export async function getWards() {
-  await delay(200);
-  return [...WARDS];
+  const { data, error } = await getSupabase()
+    .from('wards')
+    .select('id, name, ward_number')
+    .order('ward_number', { ascending: true });
+  throwIfError(error);
+  return (data || []).map((ward) => ({
+    id: ward.id,
+    name: ward.name || `Ward ${ward.ward_number}`,
+  }));
 }
 
-// ---------- Users ----------
 export async function getUsers() {
-  await delay();
-  return [...USERS];
+  const client = getSupabase();
+  const [{ data: profiles, error }, wards] = await Promise.all([
+    client
+      .from('profiles')
+      .select('id, full_name, email, phone, role, ward_id')
+      .eq('is_active', true)
+      .order('full_name', { ascending: true }),
+    getWards(),
+  ]);
+  throwIfError(error);
+  const wardsById = new Map(wards.map((ward) => [ward.id, ward]));
+  return (profiles || []).map((profile) => mapProfile(profile, wardsById.get(profile.ward_id)));
+}
+
+async function invokeUserManagement(body) {
+  const { data, error } = await getSupabase().functions.invoke('manage-users', { body });
+  if (error) {
+    const response = error.context;
+    if (response && typeof response.json === 'function') {
+      const details = await response.json().catch(() => null);
+      if (details?.error) throw new Error(details.error);
+    }
+    throw new Error(error.message || 'User management request failed.');
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 export async function createUser(data) {
-  await delay();
-  const ward = WARDS.find((w) => w.id === data.wardId) || null;
-  const newUser = {
-    id: `u${USERS.length + 1}`,
+  return invokeUserManagement({
+    action: 'create',
     name: data.name,
     email: data.email,
     phone: data.phone,
+    password: data.password,
     role: data.role,
-    wardId: ward ? ward.id : null,
-    wardName: ward ? ward.name : null,
-  };
-  USERS.push(newUser);
-  return newUser;
+    wardId: data.wardId,
+  });
 }
 
 export async function deleteUser(id) {
-  await delay(250);
-  const idx = USERS.findIndex((u) => u.id === id);
-  if (idx >= 0) USERS.splice(idx, 1);
+  await invokeUserManagement({ action: 'remove', userId: id });
 }
 
-// ---------- Voters ----------
-export async function getVoters({ search = '', wardId = null, status = null, page = 1, pageSize = 50 } = {}) {
-  await delay();
-  let items = [...VOTERS];
-  if (search) {
-    const q = search.toLowerCase();
-    items = items.filter(
-      (v) =>
-        v.fullName.toLowerCase().includes(q) ||
-        v.voterId.toLowerCase().includes(q) ||
-        v.phone.includes(q) ||
-        (v.wardSerial != null && String(v.wardSerial).includes(q))
-    );
-  }
-  if (wardId) items = items.filter((v) => v.wardId === Number(wardId));
-  if (status) items = items.filter((v) => v.status === status);
-
-  const total = items.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const start = (page - 1) * pageSize;
-  const data = items.slice(start, start + pageSize);
-  return { data, total, page, totalPages };
+export async function getVoters({
+  search = '',
+  wardId = null,
+  status = null,
+  page = 1,
+  pageSize = 50,
+} = {}) {
+  const { data, error } = await getSupabase().rpc('search_voters_page', {
+    search_term: search.trim() || null,
+    requested_ward_id: wardId || null,
+    requested_status: status || null,
+    requested_page: page,
+    requested_page_size: pageSize,
+  });
+  throwIfError(error);
+  return {
+    data: (data?.data || []).map(mapVoter),
+    total: Number(data?.total || 0),
+    page: Number(data?.page || page),
+    totalPages: Number(data?.totalPages || 1),
+  };
 }
 
 export async function addVoter(data) {
-  await delay();
-  const ward = WARDS.find((w) => w.id === Number(data.wardId));
-  const newVoter = {
-    id: `v${VOTERS.length + 1}`,
-    fullName: data.fullName,
-    voterId: data.voterId,
-    phone: data.phone,
-    wardId: ward ? ward.id : null,
-    wardName: ward ? ward.name : '',
-    boothName: data.boothName || '',
-    wardSerial: data.wardSerial ? Number(data.wardSerial) : null,
-    age: data.age || null,
-    gender: data.gender || '',
-    address: data.address || '',
-    status: data.status || 'not_visited',
-    notes: data.notes || '',
-    createdAt: new Date().toISOString(),
-    createdBy: SESSION ? SESSION.name : 'Unknown',
-  };
-  VOTERS.unshift(newVoter);
-  return newVoter;
+  const { data: row, error } = await getSupabase()
+    .from('voters')
+    .insert(mapVoterInput(data))
+    .select('*, ward:wards(id, name, ward_number)')
+    .single();
+  throwIfError(error);
+  return mapVoter(row);
 }
 
 export async function updateVoter(id, data) {
-  await delay();
-  const idx = VOTERS.findIndex((v) => v.id === id);
-  if (idx < 0) throw new Error('Voter not found');
-  const ward = data.wardId ? WARDS.find((w) => w.id === Number(data.wardId)) : null;
-  VOTERS[idx] = {
-    ...VOTERS[idx],
-    ...data,
-    wardId: ward ? ward.id : VOTERS[idx].wardId,
-    wardName: ward ? ward.name : VOTERS[idx].wardName,
-  };
-  return VOTERS[idx];
+  const { data: row, error } = await getSupabase()
+    .from('voters')
+    .update(mapVoterInput(data))
+    .eq('id', id)
+    .select('*, ward:wards(id, name, ward_number)')
+    .maybeSingle();
+  throwIfError(error);
+  if (!row) throw new Error('Voter not found or you do not have permission to update it.');
+  return mapVoter(row);
 }
 
 export async function deleteVoter(id) {
-  await delay(250);
-  const idx = VOTERS.findIndex((v) => v.id === id);
-  if (idx >= 0) VOTERS.splice(idx, 1);
+  const { data, error } = await getSupabase()
+    .from('voters')
+    .delete()
+    .eq('id', id)
+    .select('id')
+    .maybeSingle();
+  throwIfError(error);
+  if (!data) throw new Error('Voter not found or you do not have permission to delete it.');
 }
 
-// ---------- Dashboard ----------
 export async function getDashboardStats() {
-  await delay();
-  const total = VOTERS.length;
-  const wardCounts = WARDS.map((w) => ({
-    wardId: w.id,
-    wardName: w.name,
-    count: VOTERS.filter((v) => v.wardId === w.id).length,
-  }));
-  const statusBreakdown = {
-    not_visited: VOTERS.filter((v) => v.status === 'not_visited').length,
-    visited: VOTERS.filter((v) => v.status === 'visited').length,
-    follow_up: VOTERS.filter((v) => v.status === 'follow_up').length,
-  };
-
-  // Per data-entry-person breakdown: how many records each person entered,
-  // and how many of those are marked visited.
-  const contributors = DATA_ENTRY_USERS.map((u) => {
-    const entered = VOTERS.filter((v) => v.createdBy === u.name);
-    const sorted = entered.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    return {
-      userId: u.id,
-      name: u.name,
-      wardId: u.wardId,
-      wardName: u.wardName,
-      total: entered.length,
-      visited: entered.filter((v) => v.status === 'visited').length,
-      notVisited: entered.filter((v) => v.status === 'not_visited').length,
-      followUp: entered.filter((v) => v.status === 'follow_up').length,
-      todays: entered.filter((v) => isToday(v.createdAt)).length,
-      lastEntryAt: sorted[0] ? sorted[0].createdAt : null,
-    };
-  })
-    .filter((c) => c.total > 0)
-    .sort((a, b) => new Date(b.lastEntryAt || 0) - new Date(a.lastEntryAt || 0));
-
-  return { total, wardCounts, statusBreakdown, contributors, todaysEntries: TODAY_COUNT };
+  const { data, error } = await getSupabase().rpc('dashboard_stats');
+  throwIfError(error);
+  if (!data) throw new Error('The dashboard returned no statistics.');
+  return data;
 }
 
-// ---------- Export / Import ----------
-export async function exportVoters(wardId = null) {
-  await delay(600);
-  let items = [...VOTERS];
-  if (wardId) items = items.filter((v) => v.wardId === Number(wardId));
-  // Build CSV content (Excel-compatible)
-  const headers = ['Name', 'Voter ID', 'Phone', 'Ward', 'Booth', 'Serial', 'Age', 'Gender', 'Address', 'Status', 'Notes', 'Created At'];
-  const rows = items.map((v) => [
-    v.fullName,
-    v.voterId,
-    v.phone,
-    v.wardName,
-    v.boothName || '',
-    v.wardSerial || '',
-    v.age || '',
-    v.gender || '',
-    v.address,
-    v.status,
-    v.notes,
-    v.createdAt,
-  ]);
+function csvCell(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
 
-  const csv = [headers, ...rows]
-    .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const filename = wardId ? `voters_ward_${wardId}.csv` : 'voters_all.csv';
-  // trigger download
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+function downloadCsv(filename, rows) {
+  const csv = rows.map((row) => row.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  return { count: items.length, filename };
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export async function exportVoters(wardId = null) {
+  const client = getSupabase();
+  const voters = [];
+  const batchSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    let query = client
+      .from('voters')
+      .select('*, ward:wards(id, name, ward_number)')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + batchSize - 1);
+    if (wardId) query = query.eq('ward_id', wardId);
+
+    const { data, error } = await query;
+    throwIfError(error);
+    voters.push(...(data || []));
+    if (!data || data.length < batchSize) break;
+    offset += batchSize;
+  }
+
+  const rows = [
+    ['Name', 'Voter ID', 'Phone', 'Ward', 'Booth', 'Serial number', 'Age', 'Gender', 'Address', 'Status', 'Notes', 'Created At'],
+    ...voters.map((row) => {
+      const voter = mapVoter(row);
+      return [
+        voter.fullName,
+        voter.voterId,
+        voter.phone,
+        voter.wardName,
+        voter.boothName,
+        voter.wardSerial,
+        voter.age,
+        voter.gender,
+        voter.address,
+        voter.status,
+        voter.notes,
+        voter.createdAt,
+      ];
+    }),
+  ];
+  const filename = wardId ? `voters_ward_${wardId}.csv` : 'voters_all.csv';
+  downloadCsv(filename, rows);
+  return { count: voters.length, filename };
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  const source = text.replace(/^\uFEFF/, '');
+
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i];
+    if (quoted) {
+      if (char === '"' && source[i + 1] === '"') {
+        cell += '"';
+        i++;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        cell += char;
+      }
+    } else if (char === '"' && cell.length === 0) {
+      quoted = true;
+    } else if (char === ',') {
+      row.push(cell);
+      cell = '';
+    } else if (char === '\n' || char === '\r') {
+      if (char === '\r' && source[i + 1] === '\n') i++;
+      row.push(cell);
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += char;
+    }
+  }
+  row.push(cell);
+  if (row.some((value) => value.trim())) rows.push(row);
+  if (quoted) throw new Error('The CSV file contains an unclosed quoted field.');
+  return rows;
+}
+
+function parseNullableNumber(value, rowNumber, fieldName) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const parsed = Number(text);
+  if (!Number.isInteger(parsed)) {
+    throw new Error(`Row ${rowNumber}: ${fieldName} must be a whole number.`);
+  }
+  return parsed;
 }
 
 export async function importVoters(file) {
-  await delay(800);
-  // Fake import: parse a few rows from the CSV and add them
-  const text = await file.text();
-  const lines = text.split(/\r?\n/).filter(Boolean);
-  let added = 0;
-  // skip header
-  for (let i = 1; i < lines.length && i < 200; i++) {
-    const cells = lines[i].split(',').map((c) => c.replace(/^"|"$/g, '').replace(/""/g, '"'));
-    if (cells.length < 3) continue;
-    const wardName = cells[3] || 'Ward 5';
-    const ward = WARDS.find((w) => w.name === wardName) || WARDS[4];
-    VOTERS.unshift({
-      id: `v${VOTERS.length + 1}`,
-      fullName: cells[0] || 'Imported',
-      voterId: cells[1] || randomVoterId(),
-      phone: cells[2] || randomPhone(),
-      wardId: ward.id,
-      wardName: ward.name,
-      boothName: cells[4] || '',
-      wardSerial: cells[5] ? Number(cells[5]) : null,
-      age: cells[6] ? Number(cells[6]) : null,
-      gender: cells[7] || '',
-      address: cells[8] || '',
-      status: cells[9] || 'not_visited',
-      notes: cells[10] || '',
-      createdAt: new Date().toISOString(),
-      createdBy: SESSION ? SESSION.name : 'Import',
-    });
-    added++;
-  }
-  return { added, total: lines.length - 1 };
+  const [text, wards, user] = await Promise.all([
+    file.text(),
+    getWards(),
+    getCurrentUser(),
+  ]);
+  const rows = parseCsv(text);
+  const records = rows.slice(1);
+  if (!records.length) return { added: 0, total: 0 };
+
+  const wardsByName = new Map(wards.map((ward) => [ward.name.toLowerCase(), ward]));
+  const dbRows = records.map((cells, index) => {
+    const rowNumber = index + 2;
+    const fullName = String(cells[0] || '').trim();
+    const voterId = String(cells[1] || '').trim();
+    const wardLabel = String(cells[3] || '').trim();
+    const ward = wards.find((item) => item.id === wardLabel) || wardsByName.get(wardLabel.toLowerCase());
+    if (!fullName || !voterId) {
+      throw new Error(`Row ${rowNumber}: name and voter ID are required.`);
+    }
+    if (!ward && !user?.wardId) {
+      throw new Error(`Row ${rowNumber}: "${wardLabel || 'Ward'}" does not match an available ward.`);
+    }
+    const wardId = ward?.id || user.wardId;
+    if (user?.role !== 'admin' && wardId !== user?.wardId) {
+      throw new Error(`Row ${rowNumber}: you can only import voters in your assigned ward.`);
+    }
+    const phone = String(cells[2] || '').trim();
+    if (phone && !/^[6-9]\d{9}$/.test(phone)) {
+      throw new Error(`Row ${rowNumber}: phone must be 10 digits starting with 6–9.`);
+    }
+    const status = normalizeStatus(cells[9]);
+    return {
+      full_name: fullName,
+      voter_id: voterId,
+      phone: phone || null,
+      ward_id: wardId,
+      booth_name: String(cells[4] || '').trim() || null,
+      ward_serial: parseNullableNumber(cells[5], rowNumber, 'Serial number'),
+      age: parseNullableNumber(cells[6], rowNumber, 'Age'),
+      gender: String(cells[7] || '').trim() || null,
+      address: String(cells[8] || '').trim() || null,
+      status,
+      notes: String(cells[10] || '').trim() || null,
+    };
+  });
+
+  const { data, error } = await getSupabase()
+    .from('voters')
+    .insert(dbRows)
+    .select('id');
+  throwIfError(error);
+  return { added: data?.length || 0, total: dbRows.length };
 }
 
-// ---------- Message template ----------
 export const PLACEHOLDERS = [
   { token: '(name)', label: 'Voter name' },
   { token: '(VoterId)', label: 'Voter ID' },
@@ -368,78 +428,75 @@ export const PLACEHOLDERS = [
   { token: '(No)', label: 'Serial number' },
 ];
 
-const DEFAULT_TEMPLATE =
-  'Namaste (name), your voter ID is (VoterId). Please visit (booth) on election day. - Ward (ward)';
-
-let MESSAGE_TEMPLATE = DEFAULT_TEMPLATE;
-
 export async function getMessageTemplate() {
-  await delay(200);
-  const role = SESSION?.role;
-  // Only admin can edit the template; sub_admin/data_entry are read-only
-  const canEdit = role === 'admin';
+  const client = getSupabase();
+  const [user, { data, error }] = await Promise.all([
+    getCurrentUser(),
+    client
+      .from('app_settings')
+      .select('setting_value')
+      .eq('setting_key', 'message_template')
+      .maybeSingle(),
+  ]);
+  throwIfError(error);
+  const message = data?.setting_value || DEFAULT_TEMPLATE;
+  const canEdit = user?.role === 'admin';
   let appliesTo = 'All staff';
-  if (role === 'sub_admin') appliesTo = SESSION?.wardName ? `Staff in ${SESSION.wardName}` : 'Your ward staff';
-  else if (role === 'data_entry') appliesTo = 'You';
-  return {
-    message: MESSAGE_TEMPLATE,
-    canEdit,
-    appliesTo,
-    isDefault: MESSAGE_TEMPLATE === DEFAULT_TEMPLATE,
-  };
+  if (user?.role === 'sub_admin') appliesTo = user.wardName ? `Staff in ${user.wardName}` : 'Your ward staff';
+  else if (user?.role === 'data_entry') appliesTo = 'You';
+  return { message, canEdit, appliesTo, isDefault: message === DEFAULT_TEMPLATE };
 }
 
 export async function saveMessageTemplate(message) {
-  await delay(400);
-  if (SESSION?.role !== 'admin') throw new Error('Only admin can change this message');
-  MESSAGE_TEMPLATE = String(message || '').trim() || DEFAULT_TEMPLATE;
-  return MESSAGE_TEMPLATE;
+  const client = getSupabase();
+  const user = await getCurrentUser();
+  if (user?.role !== 'admin') throw new Error('Only admin can change this message.');
+  const value = String(message || '').trim() || DEFAULT_TEMPLATE;
+  const { error } = await client.from('app_settings').upsert({
+    setting_key: 'message_template',
+    setting_value: value,
+    updated_by: user.id,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'setting_key' });
+  throwIfError(error);
+  return value;
 }
-
-const RELATIVE_NAMES = ['S/o Sharma', 'D/o Reddy', 'W/o Iyer', 'S/o Gupta'];
 
 export function renderMessage(template, voter) {
   if (!template) return '';
-  const t = String(template);
-  const v = voter || {};
-  // Build a case-insensitive map of placeholder -> value
-  const replacements = [
-    ['(name)', v.fullName || ''],
-    ['(voterid)', v.voterId || ''],
-    ['(relative)', v.relativeName || pick(RELATIVE_NAMES)],
-    ['(phone)', v.phone || ''],
-    ['(ward)', v.wardName || ''],
-    ['(booth)', v.boothName || ''],
-    ['(age)', v.age != null ? String(v.age) : ''],
-    ['(gender)', v.gender ? v.gender.charAt(0).toUpperCase() + v.gender.slice(1) : ''],
-    ['(no)', v.wardSerial != null ? String(v.wardSerial) : ''],
+  const values = [
+    ['(name)', voter?.fullName || ''],
+    ['(voterid)', voter?.voterId || ''],
+    ['(relative)', voter?.relativeName || ''],
+    ['(phone)', voter?.phone || ''],
+    ['(ward)', voter?.wardName || ''],
+    ['(booth)', voter?.boothName || ''],
+    ['(age)', voter?.age != null ? String(voter.age) : ''],
+    ['(gender)', voter?.gender ? voter.gender.charAt(0).toUpperCase() + voter.gender.slice(1) : ''],
+    ['(no)', voter?.wardSerial != null ? String(voter.wardSerial) : ''],
   ];
-  let out = t;
-  for (const [token, value] of replacements) {
-    const re = new RegExp(escapeRegExp(token), 'gi');
-    out = out.replace(re, value);
+  let result = String(template);
+  for (const [token, value] of values) {
+    result = result.replace(new RegExp(escapeRegExp(token), 'gi'), value);
   }
-  return out;
+  return result;
 }
 
-function escapeRegExp(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function getContactLinks(voter, template) {
   const phone = voter?.phone || '';
-  const hasPhone = /^\d{10}$/.test(phone);
-  if (!hasPhone) {
+  if (!/^\d{10}$/.test(phone)) {
     return { canContact: false, call: '', sms: '', whatsapp: '', message: '' };
   }
   const message = renderMessage(template, voter);
-  const cleanPhone = phone.replace(/\D/g, '');
-  const intlPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
   return {
     canContact: true,
-    call: `tel:${cleanPhone}`,
-    sms: `sms:${cleanPhone}?body=${encodeURIComponent(message)}`,
-    whatsapp: `https://wa.me/${intlPhone}?text=${encodeURIComponent(message)}`,
+    call: `tel:${phone}`,
+    sms: `sms:${phone}?body=${encodeURIComponent(message)}`,
+    whatsapp: `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`,
     message,
   };
 }

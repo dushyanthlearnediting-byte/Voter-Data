@@ -27,20 +27,6 @@ export default function Login({ onLoggedIn }) {
     }
   }
 
-  function fillDemo(kind) {
-    if (kind === 'admin') {
-      setEmail('admin@ward.gov');
-      setPassword('admin123');
-    } else if (kind === 'sub') {
-      setEmail('subadmin5@ward.gov');
-      setPassword('sub123');
-    } else {
-      setEmail('data5@ward.gov');
-      setPassword('data123');
-    }
-    setError('');
-  }
-
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
       {/* Brand panel */}
@@ -144,26 +130,10 @@ export default function Login({ onLoggedIn }) {
           </form>
 
           <div className="mt-8 rounded-xl border border-slate-200 bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Demo accounts</p>
-            <div className="grid gap-2">
-              {[
-                { k: 'admin', label: 'Admin', sub: 'admin@ward.gov' },
-                { k: 'sub', label: 'Sub-Admin · Ward 5', sub: 'subadmin5@ward.gov' },
-                { k: 'data', label: 'Data Entry · Ward 5', sub: 'data5@ward.gov' },
-              ].map((d) => (
-                <button
-                  key={d.k}
-                  onClick={() => fillDemo(d.k)}
-                  className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:bg-brand-50 hover:border-brand-200 transition group"
-                >
-                  <span>
-                    <span className="block text-sm font-medium text-slate-800">{d.label}</span>
-                    <span className="block text-xs text-slate-500">{d.sub}</span>
-                  </span>
-                  <span className="text-xs font-semibold text-brand-600 opacity-0 group-hover:opacity-100 transition">Use →</span>
-                </button>
-              ))}
-            </div>
+            <p className="text-sm font-medium text-slate-800">Authorized staff only</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Sign in with the account provided by your administrator.
+            </p>
           </div>
         </div>
       </div>

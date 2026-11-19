@@ -32,8 +32,8 @@ export default function VoterDetailsPanel({ voter, messageTemplate, canDelete, u
   }
 
   async function handleSavePhone() {
-    if (!/^\d{10}$/.test(phoneDraft)) {
-      toast.error('Phone must be exactly 10 digits');
+    if (!/^[6-9]\d{9}$/.test(phoneDraft)) {
+      toast.error('Phone must be 10 digits starting with 6–9');
       return;
     }
     setPhoneSaving(true);

@@ -31,6 +31,7 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+  const { show } = toast;
 
   const isAdmin = user?.role === 'admin';
   const wardLocked = !isAdmin;
@@ -39,9 +40,11 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
     let mounted = true;
     getWards().then((w) => {
       if (mounted) setWards(w);
+    }).catch((err) => {
+      if (mounted) show(err.message || 'Could not load wards', 'error', 4000);
     });
     return () => { mounted = false; };
-  }, []);
+  }, [show]);
 
   useEffect(() => {
     if (!open) return;
@@ -80,9 +83,9 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
     if (!form.fullName.trim()) e.fullName = 'Full name is required';
     if (!form.voterId.trim()) e.voterId = 'Voter ID is required';
     if (!form.phone.trim()) e.phone = 'Phone is required';
-    else if (!/^\d{10}$/.test(form.phone.trim())) e.phone = 'Phone must be exactly 10 digits';
+    else if (!/^[6-9]\d{9}$/.test(form.phone.trim())) e.phone = 'Phone must be 10 digits starting with 6–9';
     if (!form.wardId) e.wardId = 'Ward is required';
-    if (form.age && (Number(form.age) < 1 || Number(form.age) > 120)) e.age = 'Enter a valid age';
+    if (form.age && (Number(form.age) < 18 || Number(form.age) > 120)) e.age = 'Age must be between 18 and 120';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -95,7 +98,7 @@ export default function VoterForm({ open, voter, user, onClose, onSaved }) {
       ...form,
       wardSerial: form.wardSerial ? Number(form.wardSerial) : null,
       age: form.age ? Number(form.age) : null,
-      wardId: Number(form.wardId),
+      wardId: form.wardId,
     };
     try {
       if (voter) {
