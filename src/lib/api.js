@@ -118,7 +118,13 @@ export async function login(email, password) {
 }
 
 export async function logout() {
-  const { error } = await getSupabase().auth.signOut();
+  const auth = getSupabase().auth;
+  const { data, error: sessionError } = await auth.getSession();
+  throwIfError(sessionError);
+  if (!data.session) return;
+
+  const { error } = await auth.signOut({ scope: 'local' });
+  if (error?.name === 'AuthSessionMissingError') return;
   throwIfError(error);
 }
 
